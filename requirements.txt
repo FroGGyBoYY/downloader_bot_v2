@@ -1,0 +1,6 @@
+python-telegram-bot[job-queue]
+yt-dlp[default]
+python-dotenv
+httpx
+gallery-dl
+ytmusicapi

@@ -1,0 +1,82 @@
+CUSTOM_EMOJIS = {
+    "instagram": "5319160079465857105",
+    "tiktok": "5327982530702359565",
+    "youtube": "5334681713316479679",
+    "youtube_shorts": "5334942061349059951",
+    "shorts": "5334942061349059951",
+    "pinterest": "5346103513120258857",
+    "telegram": "5330237710655306682",
+
+    "info": "5334544901428229844",
+    "error": "5974083768233760323",
+    "warning": "5420323339723881652",
+    "lock": "5291873529464122510",
+    "limit": "6084515769780013003",
+    "check": "5021905410089550576",
+    "hourglass": "5386367538735104399",
+    "download": "4929524417354007168",
+
+    "heart": "5328014489554002336",
+    "double_heart": "5377676285864595613",
+    "chain": "5271604874419647061",
+    "link": "5271604874419647061",
+    "pc": "5370874689755307499",
+
+    # Add custom emoji IDs here later if you want animated versions.
+    # When an ID is missing, the bot keeps the regular Unicode emoji.
+    "video": "",
+    "music": "5463107823946717464",
+    "photo": "",
+    "quality": "5927026418616636353",
+    "audio": "",
+    "stop": "",
+    "lang_ru": "5330499141019661433",
+    "lang_en": "5174647435116414069",
+    "lang_es": "5222024776976970940",
+    "lang_ar": "5224565851427976312",
+    "lang_zh": "5224435456220868088",
+    "lang_th": "5294308565467543746",
+    "lang_auto": "",
+}
+
+
+EMOJI_CHARS = {
+    "instagram": "📸",
+    "tiktok": "🎵",
+    "youtube": "▶️",
+    "youtube_shorts": "🎬",
+    "shorts": "🎬",
+    "pinterest": "📌",
+    "telegram": "🌐",
+    "globe": "🌐",
+
+    "info": "ℹ️",
+    "error": "❌",
+    "warning": "⚠️",
+    "lock": "🔒",
+    "limit": "⛔",
+    "check": "✅",
+    "hourglass": "⏳",
+    "download": "📥",
+
+    "heart": "❤️",
+    "double_heart": "💕",
+    "chain": "🔗",
+    "link": "🔗",
+    "pc": "💻",
+
+    "video": "🎬",
+    "music": "🎧",
+    "photo": "🖼",
+    "quality": "📺",
+    "audio": "🎙",
+    "stop": "🛑",
+
+    "lang_ru": "🇷🇺",
+    "lang_en": "🇬🇧",
+    "lang_es": "🇪🇸",
+    "lang_ar": "🇸🇦",
+    "lang_zh": "🇨🇳",
+    "lang_th": "🇹🇭",
+    "lang_auto": "🎧",
+}

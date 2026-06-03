@@ -56,6 +56,13 @@ AUTH_ERROR_MARKERS = (
 )
 
 
+INSTAGRAM_EMPTY_RESULT_AUTH_MARKERS = (
+    "download completed but no files were created",
+    "download completed but no media items were returned",
+    "yt-dlp returned empty metadata",
+)
+
+
 PLATFORM_LABELS = {
     "youtube": "Ютуб",
     "instagram": "Instagram",
@@ -98,6 +105,17 @@ def is_auth_related_error(error: BaseException | str | None) -> bool:
 
     text = str(error).lower()
     return any(marker in text for marker in AUTH_ERROR_MARKERS)
+
+
+def is_platform_auth_related_error(error: BaseException | str | None, platform: str | None) -> bool:
+    if is_auth_related_error(error):
+        return True
+
+    if normalize_cookie_platform(platform) != "instagram":
+        return False
+
+    text = str(error or "").lower()
+    return any(marker in text for marker in INSTAGRAM_EMPTY_RESULT_AUTH_MARKERS)
 
 
 def _short_reason(error: BaseException | str | None, limit: int = 450) -> str:
@@ -235,7 +253,7 @@ async def run_with_cookie_rotation(
         except Exception as e:
             last_error = e
 
-            if not is_auth_related_error(e):
+            if not is_platform_auth_related_error(e, platform):
                 raise
 
             event = rotate_auth_slot(

@@ -83,6 +83,7 @@ from app.handlers.ads import (
     ad_stats_txt_cmd,
     ad_status_cmd,
     broadcast_cmd,
+    broadcast_users_cmd,
     friend_add_cmd,
     friend_del_cmd,
     friend_list_cmd,
@@ -332,6 +333,7 @@ def build_application():
     app.add_handler(CommandHandler(["ad8_stats_txt", "scheduled_ad_stats_txt"], ad8_stats_txt_cmd))
     app.add_handler(CommandHandler(["ad8_on", "ad8_off", "scheduled_ad_on", "scheduled_ad_off"], ad8_status_cmd))
     app.add_handler(CommandHandler(["broadcast", "bc"], broadcast_cmd))
+    app.add_handler(CommandHandler(["bc_users", "broadcast_users"], broadcast_users_cmd))
     app.add_handler(CommandHandler("friend_add", friend_add_cmd))
     app.add_handler(CommandHandler("friend_del", friend_del_cmd))
     app.add_handler(CommandHandler("friend_list", friend_list_cmd))

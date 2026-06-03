@@ -824,6 +824,38 @@ def _broadcast_blocked(error: Exception) -> bool:
     )
 
 
+def _parse_broadcast_user_targets(raw: str) -> tuple[list[int], str, str | None]:
+    ids_part, separator, buttons_part = raw.partition("--")
+    ids_part = ids_part.strip()
+
+    if not ids_part:
+        return [], "", "Usage: /bc_users 123456789 987654321 [-- Button | https://url | green]"
+
+    matches = re.findall(r"\b\d{5,15}\b", ids_part)
+    leftover = re.sub(r"\b\d{5,15}\b", " ", ids_part)
+    leftover = re.sub(r"[\s,;]+", "", leftover)
+
+    if leftover:
+        return [], "", "User ids must be numbers. Put buttons after --."
+
+    seen: set[int] = set()
+    user_ids: list[int] = []
+
+    for match in matches:
+        user_id = int(match)
+
+        if user_id in seen:
+            continue
+
+        seen.add(user_id)
+        user_ids.append(user_id)
+
+    if not user_ids:
+        return [], "", "No user ids found. Usage: /bc_users 123456789 987654321"
+
+    return user_ids, buttons_part.strip() if separator else "", None
+
+
 async def _run_broadcast(
     *,
     context: ContextTypes.DEFAULT_TYPE,
@@ -832,9 +864,15 @@ async def _run_broadcast(
     source_chat_id: int,
     source_message_id: int,
     buttons: list[dict],
+    target_user_ids: list[int] | None = None,
+    action: str = "broadcast",
 ) -> None:
     settings: Settings = context.application.bot_data["settings"]
-    rows = list_message_target_users(settings, include_friends=True)
+    rows = (
+        [{"user_id": user_id} for user_id in target_user_ids]
+        if target_user_ids is not None
+        else list_message_target_users(settings, include_friends=True)
+    )
     reply_markup = _build_buttons_reply_markup(buttons)
     sent_count = 0
     failed_count = 0
@@ -867,7 +905,7 @@ async def _run_broadcast(
     log_admin_action(
         settings,
         admin_id=admin_id,
-        action="broadcast",
+        action=action,
         details=f"users={len(rows)} sent={sent_count} failed={failed_count} blocked={blocked_count} buttons={len(buttons)}",
     )
 
@@ -880,6 +918,60 @@ async def _run_broadcast(
             f"Failed: {failed_count}\n"
             f"Blocked: {blocked_count}"
         ),
+    )
+
+
+async def broadcast_users_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    settings: Settings = context.application.bot_data["settings"]
+    user = update.effective_user
+    message = update.message
+
+    if not message:
+        return
+
+    if not _is_admin(settings, user.id if user else None):
+        await message.reply_text("Эта команда доступна только админу.")
+        return
+
+    source = message.reply_to_message
+
+    if not source:
+        await message.reply_text(
+            "Ответь командой /bc_users на сообщение, которое нужно разослать выбранным пользователям.\n"
+            "Пример: /bc_users 123456789 987654321\n"
+            "Кнопки: /bc_users 123456789 987654321 -- Текст | https://url | green"
+        )
+        return
+
+    target_user_ids, buttons_tail, target_error = _parse_broadcast_user_targets(_command_tail(message))
+
+    if target_error:
+        await message.reply_text(target_error)
+        return
+
+    buttons, button_error = _parse_button_configs(buttons_tail)
+
+    if button_error:
+        await message.reply_text(button_error)
+        return
+
+    await message.reply_text(
+        f"Broadcast to users started: users {len(target_user_ids)}, buttons {len(buttons)}. "
+        "Когда закончу, пришлю итог."
+    )
+
+    context.application.create_task(
+        _run_broadcast(
+            context=context,
+            admin_chat_id=message.chat_id,
+            admin_id=user.id if user else None,
+            source_chat_id=source.chat_id,
+            source_message_id=source.message_id,
+            buttons=buttons,
+            target_user_ids=target_user_ids,
+            action="broadcast_users",
+        ),
+        update=update,
     )
 
 

@@ -4,6 +4,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from app.db.admin_repo import get_all_admin_ids
+from app.db.groups_repo import upsert_bot_group
 from app.texts.keys import TextKey
 from app.texts.renderer import render_text
 
@@ -65,6 +66,20 @@ async def bot_chat_member_handler(
 
     was_active = old_status in ACTIVE_BOT_STATUSES
     is_active = new_status in ACTIVE_BOT_STATUSES
+    settings = context.application.bot_data.get("settings")
+    actor = getattr(event, "from_user", None)
+    actor_id = getattr(actor, "id", None)
+
+    if settings and chat_type in {"group", "supergroup"}:
+        try:
+            upsert_bot_group(
+                settings,
+                chat,
+                status="active" if is_active else (new_status or "removed"),
+                added_by_user_id=actor_id if is_active and not was_active else None,
+            )
+        except Exception:
+            logger.exception("Could not save group membership | chat_id=%s", chat.id)
 
     if is_active and not was_active:
         if chat_type in {"group", "supergroup"}:

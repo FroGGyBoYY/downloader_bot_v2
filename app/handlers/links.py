@@ -22,6 +22,7 @@ from app.downloader import url_resolver
 
 from app.downloader.routing import make_route_decision as routing_make_route_decision
 from app.downloader.url_cleaner import clean_download_url
+from app.db.groups_repo import record_group_activity
 from app.db.users_repo import upsert_user
 from app.services.cookie_auth_service import is_auth_related_error, run_with_cookie_rotation
 from app.services.access_control_service import send_access_denied_if_needed
@@ -431,6 +432,12 @@ async def link_message_handler(
     chat_id = update.effective_chat.id
     language_code = _get_user_language_code(context, user)
     upsert_user(settings, user)
+
+    if _is_group_chat(update):
+        try:
+            record_group_activity(settings, update.effective_chat)
+        except Exception:
+            logger.exception("Could not record group activity | chat_id=%s", chat_id)
 
     if await send_access_denied_if_needed(
         context=context,

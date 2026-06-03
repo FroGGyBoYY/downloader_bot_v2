@@ -84,6 +84,22 @@ def init_db(settings: Settings) -> None:
     """)
 
     cur.execute("""
+    CREATE TABLE IF NOT EXISTS bot_groups (
+        chat_id INTEGER PRIMARY KEY,
+        title TEXT,
+        username TEXT,
+        chat_type TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        added_by_user_id INTEGER,
+        first_seen TEXT NOT NULL,
+        last_seen TEXT NOT NULL,
+        last_activity_at TEXT,
+        requests_count INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+    )
+    """)
+
+    cur.execute("""
     CREATE TABLE IF NOT EXISTS download_requests (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
 
@@ -405,6 +421,9 @@ def init_db(settings: Settings) -> None:
     cur.execute("CREATE INDEX IF NOT EXISTS idx_users_friend ON users(is_friend)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_user_events_user ON user_events(user_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_user_events_created ON user_events(created_at)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_bot_groups_status ON bot_groups(status)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_bot_groups_last_seen ON bot_groups(last_seen)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_bot_groups_activity ON bot_groups(last_activity_at)")
 
     cur.execute("CREATE INDEX IF NOT EXISTS idx_requests_user_created ON download_requests(user_id, created_at)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_requests_platform_created ON download_requests(platform, created_at)")

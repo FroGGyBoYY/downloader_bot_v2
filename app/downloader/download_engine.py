@@ -260,6 +260,99 @@ def _collect_downloaded_files(output_dir: Path) -> list[Path]:
 
     return files
 
+
+def _coerce_positive_int(value) -> int | None:
+    try:
+        number = int(float(value))
+    except Exception:
+        return None
+
+    return number if number > 0 else None
+
+
+def _format_size_mb(size: int) -> str:
+    return f"{size / 1024 / 1024:.1f} MB"
+
+
+def _size_from_format_group(items) -> int | None:
+    if not isinstance(items, list):
+        return None
+
+    total = 0
+    found = False
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+
+        size = _coerce_positive_int(item.get("filesize") or item.get("filesize_approx"))
+
+        if size:
+            total += size
+            found = True
+
+    return total if found else None
+
+
+def _selected_item_size(info: dict) -> int | None:
+    requested_downloads_size = _size_from_format_group(info.get("requested_downloads"))
+
+    if requested_downloads_size:
+        return requested_downloads_size
+
+    requested_formats_size = _size_from_format_group(info.get("requested_formats"))
+
+    if requested_formats_size:
+        return requested_formats_size
+
+    return _coerce_positive_int(info.get("filesize") or info.get("filesize_approx"))
+
+
+def _selected_item_sizes(info) -> list[int]:
+    if not isinstance(info, dict):
+        return []
+
+    entries = info.get("entries")
+
+    if isinstance(entries, list) and entries:
+        sizes: list[int] = []
+
+        for entry in entries:
+            sizes.extend(_selected_item_sizes(entry))
+
+        return sizes
+
+    size = _selected_item_size(info)
+
+    return [size] if size else []
+
+
+def _raise_if_selected_size_exceeds_limit(info, max_bytes: int) -> None:
+    if max_bytes <= 0:
+        return
+
+    for size in _selected_item_sizes(info):
+        if size > max_bytes:
+            raise RuntimeError(
+                "file too large before download: "
+                f"{_format_size_mb(size)}, limit {_format_size_mb(max_bytes)}"
+            )
+
+
+def _preflight_download_size(
+    *,
+    ydl: yt_dlp.YoutubeDL,
+    url: str,
+    max_bytes: int,
+) -> None:
+    try:
+        info = ydl.extract_info(url, download=False)
+    except Exception as exc:
+        logger.warning("Pre-download size check skipped | url=%s error=%s", url, exc)
+        return
+
+    _raise_if_selected_size_exceeds_limit(info, max_bytes)
+
 def _should_fix_mp4_for_telegram(route: RouteDecision, media_type: str, path: Path) -> bool:
     if media_type != "video":
         return False
@@ -853,7 +946,14 @@ def download_media_bundle(
         audio_format_id,
     )
 
+    max_size = settings.max_file_size_mb * 1024 * 1024
+
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        _preflight_download_size(
+            ydl=ydl,
+            url=url,
+            max_bytes=max_size,
+        )
         downloaded_info = ydl.extract_info(url, download=True)
 
     if isinstance(downloaded_info, dict):
@@ -869,8 +969,6 @@ def download_media_bundle(
             )
 
         raise RuntimeError("download completed but no files were created")
-
-    max_size = settings.max_file_size_mb * 1024 * 1024
 
     result: list[DownloadedMedia] = []
     item_total = len(files)

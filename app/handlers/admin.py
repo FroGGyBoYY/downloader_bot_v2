@@ -22,6 +22,7 @@ from app.db.admin_repo import (
 )
 from app.db.cookie_auth_repo import log_admin_action, to_local_display
 from app.db.database import db_connect
+from app.db.groups_repo import count_bot_groups, list_bot_groups
 from app.db.user_reports_repo import list_recent_user_reports
 from app.db.users_repo import get_full_name, list_banned_users, set_user_banned
 from app.services.access_control_service import (
@@ -77,6 +78,7 @@ ADMIN_FUNCTIONS = [
     (41, "/delete_all_proxy", "удалить все прокси с подтверждением"),
     (42, "/delete_one_proxy 1", "удалить одну прокси по id с подтверждением"),
     (43, "/user 123456789 10", "user downloads history"),
+    (44, "/groups", "группы, где был добавлен бот"),
 ]
 
 ADMIN_RUNNERS = {
@@ -108,6 +110,7 @@ ADMIN_RUNNERS = {
     35: "users_cmd",
     40: "proxy_hs_admin_runner",
     41: "delete_all_proxy_admin_runner",
+    44: "groups_cmd",
 }
 
 
@@ -1182,6 +1185,41 @@ async def user_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         ))
 
     await _reply_text_chunks(update.message, "\n".join(lines), parse_mode="HTML")
+
+
+async def groups_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _ensure_admin(update, context):
+        return
+
+    settings = _settings(context)
+    limit = _parse_limit(_tail(update), 30, 200)
+    total, active = count_bot_groups(settings)
+    rows = list_bot_groups(settings, limit=limit)
+
+    lines = [
+        "Bot groups",
+        f"Active: {active}",
+        f"Total: {total}",
+        f"Shown: {len(rows)}/{limit}",
+        "",
+    ]
+
+    if not rows:
+        lines.append("No groups yet.")
+    else:
+        for index, row in enumerate(rows, 1):
+            username = _username_label(row["username"])
+            title = " ".join(str(row["title"] or "-").split())
+            last_seen = _fmt_dt(settings, row["last_seen"])
+            last_activity = _fmt_dt(settings, row["last_activity_at"]) if row["last_activity_at"] else "-"
+            lines.append(
+                f"{index}. {row['chat_id']} | {username} | {title} | "
+                f"{row['chat_type'] or '-'} | {row['status'] or '-'} | "
+                f"first {_fmt_dt(settings, row['first_seen'])} | last {last_seen} | "
+                f"activity {last_activity} | requests {row['requests_count'] or 0}"
+            )
+
+    await _reply_text_chunks(update.message, "\n".join(lines))
 
 
 async def failed_downloads_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

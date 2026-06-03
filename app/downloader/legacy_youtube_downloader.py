@@ -8,13 +8,6 @@ from urllib.parse import urlparse
 import yt_dlp
 
 from app.config import Settings
-from app.db.proxy_pool_repo import (
-    is_proxy_error,
-    list_proxies,
-    mark_proxy_failed,
-    mark_proxy_success,
-    mask_proxy,
-)
 from app.downloader.cookies import apply_platform_cookies
 
 
@@ -67,24 +60,11 @@ def get_audio_missing_text(lang_code: str) -> str:
     return f"Озвучки {label} нет у этого видео. Выбери другую."
 
 
-def _should_retry_with_proxy(error: object) -> bool:
-    text = str(error or "").casefold()
-    return (
-        "video unavailable" in text
-        or "this content isn't available" in text
-        or "this content isn’t available" in text
-        or "not available in your country" in text
-        or "not available from your location" in text
-    )
-
-
-def _extract_video_metadata_once(
+def fetch_video_metadata_legacy(
     settings: Settings,
     url: str,
     *,
     platform_auth_slot: int | None = None,
-    proxy_url: str | None = None,
-    proxy_id: int | None = None,
 ) -> dict:
     opts = {
         "quiet": True,
@@ -95,13 +75,7 @@ def _extract_video_metadata_once(
         "retries": 2,
     }
 
-    opts = apply_platform_cookies(
-        settings,
-        url,
-        opts,
-        platform_auth_slot=platform_auth_slot,
-        proxy_url_override=proxy_url,
-    )
+    opts = apply_platform_cookies(settings, url, opts, platform_auth_slot=platform_auth_slot)
 
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False)
@@ -114,70 +88,8 @@ def _extract_video_metadata_once(
 
     info["_platform_auth_name"] = opts.get("_platform_auth_name")
     info["_platform_auth_slot"] = opts.get("_platform_auth_slot")
-    if proxy_url:
-        info["_proxy_url"] = proxy_url
-    if proxy_id is not None:
-        info["_proxy_id"] = proxy_id
 
     return info
-
-
-def fetch_video_metadata_legacy(
-    settings: Settings,
-    url: str,
-    *,
-    platform_auth_slot: int | None = None,
-) -> dict:
-    try:
-        return _extract_video_metadata_once(
-            settings,
-            url,
-            platform_auth_slot=platform_auth_slot,
-            proxy_url=None,
-            proxy_id=None,
-        )
-    except Exception as error:
-        if not _should_retry_with_proxy(error):
-            raise
-        last_error: Exception = error
-
-    proxies = list_proxies(settings, include_dead=False)
-    for proxy in proxies[:8]:
-        proxy_id = int(proxy["id"])
-        proxy_url = str(proxy["proxy_url"] or "")
-        if not proxy_url:
-            continue
-
-        logger.info(
-            "Legacy YouTube metadata retry with proxy | id=%s proxy=%s url=%s",
-            proxy_id,
-            mask_proxy(proxy_url),
-            url,
-        )
-        try:
-            info = _extract_video_metadata_once(
-                settings,
-                url,
-                platform_auth_slot=platform_auth_slot,
-                proxy_url=proxy_url,
-                proxy_id=proxy_id,
-            )
-            mark_proxy_success(settings, proxy_id)
-            return info
-        except Exception as proxy_error:
-            last_error = proxy_error
-            proxy_failed = is_proxy_error(proxy_error)
-            mark_proxy_failed(settings, proxy_id, str(proxy_error), dead=proxy_failed)
-            logger.warning(
-                "Legacy YouTube metadata proxy retry failed | id=%s dead=%s proxy=%s error=%s",
-                proxy_id,
-                proxy_failed,
-                mask_proxy(proxy_url),
-                proxy_error,
-            )
-            continue
-
-    raise last_error
 
 
 def get_available_youtube_audio_langs(info: dict) -> set[str]:
@@ -276,6 +188,99 @@ def format_quality_label_legacy(
         return "360p"
 
     return f"{height}p"
+
+
+def _coerce_positive_int(value) -> Optional[int]:
+    try:
+        number = int(float(value))
+    except Exception:
+        return None
+
+    return number if number > 0 else None
+
+
+def _format_size_mb(size: int) -> str:
+    return f"{size / 1024 / 1024:.1f} MB"
+
+
+def _size_from_format_group(items) -> Optional[int]:
+    if not isinstance(items, list):
+        return None
+
+    total = 0
+    found = False
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+
+        size = _coerce_positive_int(item.get("filesize") or item.get("filesize_approx"))
+
+        if size:
+            total += size
+            found = True
+
+    return total if found else None
+
+
+def _selected_item_size(info: dict) -> Optional[int]:
+    requested_downloads_size = _size_from_format_group(info.get("requested_downloads"))
+
+    if requested_downloads_size:
+        return requested_downloads_size
+
+    requested_formats_size = _size_from_format_group(info.get("requested_formats"))
+
+    if requested_formats_size:
+        return requested_formats_size
+
+    return _coerce_positive_int(info.get("filesize") or info.get("filesize_approx"))
+
+
+def _selected_item_sizes(info) -> list[int]:
+    if not isinstance(info, dict):
+        return []
+
+    entries = info.get("entries")
+
+    if isinstance(entries, list) and entries:
+        sizes: list[int] = []
+
+        for entry in entries:
+            sizes.extend(_selected_item_sizes(entry))
+
+        return sizes
+
+    size = _selected_item_size(info)
+
+    return [size] if size else []
+
+
+def _raise_if_selected_size_exceeds_limit(info, max_bytes: int) -> None:
+    if max_bytes <= 0:
+        return
+
+    for size in _selected_item_sizes(info):
+        if size > max_bytes:
+            raise RuntimeError(
+                "file too large before download: "
+                f"{_format_size_mb(size)}, limit {_format_size_mb(max_bytes)}"
+            )
+
+
+def _preflight_download_size(
+    *,
+    ydl: yt_dlp.YoutubeDL,
+    url: str,
+    max_bytes: int,
+) -> None:
+    try:
+        info = ydl.extract_info(url, download=False)
+    except Exception as exc:
+        logger.warning("Legacy pre-download size check skipped | url=%s error=%s", url, exc)
+        return
+
+    _raise_if_selected_size_exceeds_limit(info, max_bytes)
 
 
 def estimate_best_single_file_size(info: dict, max_height: int) -> Optional[int]:
@@ -386,7 +391,6 @@ def run_yt_dlp_download(
     *,
     merge: bool = False,
     platform_auth_slot: int | None = None,
-    proxy_url: str | None = None,
 ) -> tuple[Optional[Path], Optional[dict], str]:
     clean_output_dir(output_dir)
 
@@ -405,19 +409,20 @@ def run_yt_dlp_download(
         "http_chunk_size": 10 * 1024 * 1024,
     }
 
-    ydl_opts = apply_platform_cookies(
-        settings,
-        url,
-        ydl_opts,
-        platform_auth_slot=platform_auth_slot,
-        proxy_url_override=proxy_url,
-    )
+    ydl_opts = apply_platform_cookies(settings, url, ydl_opts, platform_auth_slot=platform_auth_slot)
 
     if merge:
         ydl_opts["merge_output_format"] = "mp4"
 
     try:
+        max_file_size = settings.max_file_size_mb * 1024 * 1024
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            _preflight_download_size(
+                ydl=ydl,
+                url=url,
+                max_bytes=max_file_size,
+            )
             downloaded_info = ydl.extract_info(url, download=True)
 
             if isinstance(downloaded_info, dict) and "entries" in downloaded_info and downloaded_info["entries"]:
@@ -426,8 +431,6 @@ def run_yt_dlp_download(
             if isinstance(downloaded_info, dict):
                 downloaded_info["_platform_auth_name"] = ydl_opts.get("_platform_auth_name")
                 downloaded_info["_platform_auth_slot"] = ydl_opts.get("_platform_auth_slot")
-                if proxy_url:
-                    downloaded_info["_proxy_url"] = proxy_url
 
         files = [
             f for f in Path(output_dir).iterdir()
@@ -438,8 +441,6 @@ def run_yt_dlp_download(
             return None, None, f"format {fmt}: файл не найден"
 
         file_path = max(files, key=lambda p: p.stat().st_size)
-        max_file_size = settings.max_file_size_mb * 1024 * 1024
-
         if file_path.stat().st_size > max_file_size:
             return None, None, (
                 f"format {fmt}: файл слишком большой "
@@ -460,7 +461,6 @@ def download_fast_single_file(
     info: dict,
     requested_quality: Optional[int],
     platform_auth_slot: int | None = None,
-    proxy_url: str | None = None,
 ) -> tuple[Optional[Path], Optional[dict], str]:
     extractor = (info.get("extractor_key") or info.get("extractor") or "").lower()
 
@@ -484,7 +484,6 @@ def download_fast_single_file(
             format_id,
             merge=False,
             platform_auth_slot=platform_auth_slot,
-            proxy_url=proxy_url,
         )
 
         if downloaded_info:
@@ -509,7 +508,6 @@ def download_fast_single_file(
             fmt,
             merge=False,
             platform_auth_slot=platform_auth_slot,
-            proxy_url=proxy_url,
         )
 
         if file_path and downloaded_info:
@@ -530,7 +528,6 @@ def download_big_optimized(
     requested_quality: Optional[int],
     requested_audio_lang: Optional[str] = None,
     platform_auth_slot: int | None = None,
-    proxy_url: str | None = None,
 ) -> tuple[Optional[Path], Optional[dict], str]:
     extractor = (info.get("extractor_key") or info.get("extractor") or "").lower()
     quality = requested_quality or 720
@@ -615,7 +612,6 @@ def download_big_optimized(
             fmt,
             merge=merge,
             platform_auth_slot=platform_auth_slot,
-            proxy_url=proxy_url,
         )
 
         if file_path and downloaded_info:
@@ -658,7 +654,6 @@ def download_youtube_hq(
     max_height: int = 1080,
     requested_audio_lang: Optional[str] = None,
     platform_auth_slot: int | None = None,
-    proxy_url: str | None = None,
 ) -> tuple[Optional[Path], Optional[dict], str]:
     audio_lang = normalize_audio_lang(requested_audio_lang)
     strict_audio = audio_lang in SUPPORTED_YOUTUBE_AUDIO_LANGS
@@ -732,7 +727,6 @@ def download_youtube_hq(
             fmt=fmt,
             merge=merge,
             platform_auth_slot=platform_auth_slot,
-            proxy_url=proxy_url,
         )
 
         if file_path and downloaded_info:
@@ -756,7 +750,6 @@ def download_video_smart_legacy(
     extractor = (info.get("extractor_key") or info.get("extractor") or "").lower()
     quality = 1080 if requested_quality == 1081 else (requested_quality or 720)
     is_hq = requested_quality == 1081
-    proxy_url = str(info.get("_proxy_url") or "").strip() or None
 
     if "youtube" in extractor and is_hq:
         file_path, downloaded_info, result = download_youtube_hq(
@@ -767,7 +760,6 @@ def download_video_smart_legacy(
             max_height=1080,
             requested_audio_lang=requested_audio_lang,
             platform_auth_slot=platform_auth_slot,
-            proxy_url=proxy_url,
         )
 
         if file_path and downloaded_info:
@@ -800,7 +792,6 @@ def download_video_smart_legacy(
             info,
             requested_quality,
             platform_auth_slot=platform_auth_slot,
-            proxy_url=proxy_url,
         )
 
         if file_path and downloaded_info:
@@ -816,7 +807,6 @@ def download_video_smart_legacy(
         requested_quality,
         requested_audio_lang,
         platform_auth_slot=platform_auth_slot,
-        proxy_url=proxy_url,
     )
 
     if file_path and downloaded_info:
@@ -832,7 +822,6 @@ def download_video_smart_legacy(
             info,
             requested_quality,
             platform_auth_slot=platform_auth_slot,
-            proxy_url=proxy_url,
         )
 
         if file_path and downloaded_info:

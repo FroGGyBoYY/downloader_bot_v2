@@ -50,6 +50,7 @@ from app.handlers.admin import (
     db_tables_cmd,
     errors_cmd,
     failed_downloads_cmd,
+    groups_cmd,
     health_check_cmd,
     maintenance_off_cmd,
     maintenance_on_cmd,
@@ -295,6 +296,7 @@ def build_application():
     app.add_handler(CommandHandler("errors", errors_cmd))
     app.add_handler(CommandHandler("recent_downloads", recent_downloads_cmd))
     app.add_handler(CommandHandler("failed_downloads", failed_downloads_cmd))
+    app.add_handler(CommandHandler("groups", groups_cmd))
     app.add_handler(CommandHandler("db_tables", db_tables_cmd))
     app.add_handler(CommandHandler("db_export", db_export_cmd))
     app.add_handler(CommandHandler("table_export", table_export_cmd))

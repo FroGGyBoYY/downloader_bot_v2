@@ -24,6 +24,7 @@ from app.downloader.routing import RouteDecision
 from app.services.access_control_service import send_access_denied_if_needed
 from app.services.ads_service import maybe_send_after_download_ad
 from app.services.cookie_auth_service import count_cookie_success, run_with_cookie_rotation
+from app.services.proxy_rotation_service import run_with_proxy_rotation_sync
 from app.telegram_ui.captions import CaptionPayload, build_content_caption, build_media_caption
 from app.telegram_ui.button_styles import build_styled_url_button
 from app.telegram_ui.messages import send_text
@@ -2290,17 +2291,24 @@ async def process_download_request(
             download_url = resolved_url or original_url
 
             def _download_operation(slot: int):
-                return download_media_bundle(
+                proxy_result = run_with_proxy_rotation_sync(
                     settings=settings,
-                    url=download_url,
-                    route=route,
-                    output_dir=Path(tmpdir),
-                    quality=quality,
-                    audio_lang=audio_lang,
-                    audio_format_id=audio_format_id,
-                    platform_auth_slot=slot,
-                    playlist_item_limit=album_item_limit,
+                    platform=platform,
+                    operation=lambda proxy_url: download_media_bundle(
+                        settings=settings,
+                        url=download_url,
+                        route=route,
+                        output_dir=Path(tmpdir),
+                        quality=quality,
+                        audio_lang=audio_lang,
+                        audio_format_id=audio_format_id,
+                        platform_auth_slot=slot,
+                        playlist_item_limit=album_item_limit,
+                        proxy_url=proxy_url,
+                    ),
+                    operation_name="download_media_bundle",
                 )
+                return proxy_result.value
 
             auth_result = await run_with_cookie_rotation(
                 context=context,

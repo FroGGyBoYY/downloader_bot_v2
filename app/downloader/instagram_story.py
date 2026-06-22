@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 from app.config import Settings
-from app.downloader.cookies import get_cookie_path
+from app.downloader.cookies import get_cookie_path, get_platform_proxy_url
 
 
 logger = logging.getLogger(__name__)
@@ -94,10 +94,16 @@ def _run_gallery_dl(
     output_dir: Path,
     *,
     platform_auth_slot: int | None = None,
+    proxy_url: str | None = None,
 ) -> tuple[int, str, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     cookies_path = _get_instagram_cookies_path(settings, platform_auth_slot)
+    selected_proxy_url = get_platform_proxy_url(
+        settings,
+        "instagram",
+        proxy_url_override=proxy_url,
+    )
 
     cmd = [
         sys.executable,
@@ -111,14 +117,18 @@ def _run_gallery_dl(
     if cookies_path:
         cmd.extend(["--cookies", str(cookies_path)])
 
+    if selected_proxy_url:
+        cmd.extend(["--proxy", selected_proxy_url])
+
     url = _canonical_story_url(url)
     cmd.append(url)
 
     logger.info(
-        "Instagram story gallery-dl started | url=%s output_dir=%s cookies=%s",
+        "Instagram story gallery-dl started | url=%s output_dir=%s cookies=%s proxy=%s",
         url,
         output_dir,
         cookies_path,
+        bool(selected_proxy_url),
     )
 
     result = subprocess.run(
@@ -145,6 +155,7 @@ def download_instagram_story(
     url: str,
     output_dir: Path,
     platform_auth_slot: int | None = None,
+    proxy_url: str | None = None,
 ) -> list[Path]:
     """
     Скачивает Instagram story через gallery-dl.
@@ -159,6 +170,7 @@ def download_instagram_story(
         url=url,
         output_dir=output_dir,
         platform_auth_slot=platform_auth_slot,
+        proxy_url=proxy_url,
     )
 
     files = _collect_downloaded_media(output_dir)

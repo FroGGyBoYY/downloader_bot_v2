@@ -65,6 +65,7 @@ def fetch_video_metadata_legacy(
     url: str,
     *,
     platform_auth_slot: int | None = None,
+    proxy_url: str | None = None,
 ) -> dict:
     opts = {
         "quiet": True,
@@ -75,7 +76,13 @@ def fetch_video_metadata_legacy(
         "retries": 2,
     }
 
-    opts = apply_platform_cookies(settings, url, opts, platform_auth_slot=platform_auth_slot)
+    opts = apply_platform_cookies(
+        settings,
+        url,
+        opts,
+        platform_auth_slot=platform_auth_slot,
+        proxy_url_override=proxy_url,
+    )
 
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False)
@@ -391,6 +398,7 @@ def run_yt_dlp_download(
     *,
     merge: bool = False,
     platform_auth_slot: int | None = None,
+    proxy_url: str | None = None,
 ) -> tuple[Optional[Path], Optional[dict], str]:
     clean_output_dir(output_dir)
 
@@ -409,7 +417,13 @@ def run_yt_dlp_download(
         "http_chunk_size": 10 * 1024 * 1024,
     }
 
-    ydl_opts = apply_platform_cookies(settings, url, ydl_opts, platform_auth_slot=platform_auth_slot)
+    ydl_opts = apply_platform_cookies(
+        settings,
+        url,
+        ydl_opts,
+        platform_auth_slot=platform_auth_slot,
+        proxy_url_override=proxy_url,
+    )
 
     if merge:
         ydl_opts["merge_output_format"] = "mp4"
@@ -461,6 +475,7 @@ def download_fast_single_file(
     info: dict,
     requested_quality: Optional[int],
     platform_auth_slot: int | None = None,
+    proxy_url: str | None = None,
 ) -> tuple[Optional[Path], Optional[dict], str]:
     extractor = (info.get("extractor_key") or info.get("extractor") or "").lower()
 
@@ -484,6 +499,7 @@ def download_fast_single_file(
             format_id,
             merge=False,
             platform_auth_slot=platform_auth_slot,
+            proxy_url=proxy_url,
         )
 
         if downloaded_info:
@@ -508,6 +524,7 @@ def download_fast_single_file(
             fmt,
             merge=False,
             platform_auth_slot=platform_auth_slot,
+            proxy_url=proxy_url,
         )
 
         if file_path and downloaded_info:
@@ -528,6 +545,7 @@ def download_big_optimized(
     requested_quality: Optional[int],
     requested_audio_lang: Optional[str] = None,
     platform_auth_slot: int | None = None,
+    proxy_url: str | None = None,
 ) -> tuple[Optional[Path], Optional[dict], str]:
     extractor = (info.get("extractor_key") or info.get("extractor") or "").lower()
     quality = requested_quality or 720
@@ -612,6 +630,7 @@ def download_big_optimized(
             fmt,
             merge=merge,
             platform_auth_slot=platform_auth_slot,
+            proxy_url=proxy_url,
         )
 
         if file_path and downloaded_info:
@@ -654,6 +673,7 @@ def download_youtube_hq(
     max_height: int = 1080,
     requested_audio_lang: Optional[str] = None,
     platform_auth_slot: int | None = None,
+    proxy_url: str | None = None,
 ) -> tuple[Optional[Path], Optional[dict], str]:
     audio_lang = normalize_audio_lang(requested_audio_lang)
     strict_audio = audio_lang in SUPPORTED_YOUTUBE_AUDIO_LANGS
@@ -727,6 +747,7 @@ def download_youtube_hq(
             fmt=fmt,
             merge=merge,
             platform_auth_slot=platform_auth_slot,
+            proxy_url=proxy_url,
         )
 
         if file_path and downloaded_info:
@@ -746,6 +767,7 @@ def download_video_smart_legacy(
     requested_quality: Optional[int] = None,
     requested_audio_lang: Optional[str] = None,
     platform_auth_slot: int | None = None,
+    proxy_url: str | None = None,
 ) -> tuple[Optional[Path], Optional[dict], str]:
     extractor = (info.get("extractor_key") or info.get("extractor") or "").lower()
     quality = 1080 if requested_quality == 1081 else (requested_quality or 720)
@@ -760,6 +782,7 @@ def download_video_smart_legacy(
             max_height=1080,
             requested_audio_lang=requested_audio_lang,
             platform_auth_slot=platform_auth_slot,
+            proxy_url=proxy_url,
         )
 
         if file_path and downloaded_info:
@@ -792,6 +815,7 @@ def download_video_smart_legacy(
             info,
             requested_quality,
             platform_auth_slot=platform_auth_slot,
+            proxy_url=proxy_url,
         )
 
         if file_path and downloaded_info:
@@ -807,6 +831,7 @@ def download_video_smart_legacy(
         requested_quality,
         requested_audio_lang,
         platform_auth_slot=platform_auth_slot,
+        proxy_url=proxy_url,
     )
 
     if file_path and downloaded_info:
@@ -822,6 +847,7 @@ def download_video_smart_legacy(
             info,
             requested_quality,
             platform_auth_slot=platform_auth_slot,
+            proxy_url=proxy_url,
         )
 
         if file_path and downloaded_info:

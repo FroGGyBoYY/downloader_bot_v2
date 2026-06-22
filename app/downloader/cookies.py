@@ -121,6 +121,29 @@ def get_auth_name(platform: str, slot: int) -> str:
     return f"{platform}_cookies_{slot}"
 
 
+def get_platform_proxy_url(
+    settings: Settings,
+    platform: str | None,
+    *,
+    proxy_url_override: str | None = None,
+) -> str:
+    if proxy_url_override is not None:
+        return str(proxy_url_override or "").strip()
+
+    platform = normalize_cookie_platform(platform) or str(platform or "").lower().strip()
+    attr_name = {
+        "youtube": "youtube_proxy_url",
+        "instagram": "instagram_proxy_url",
+        "tiktok": "tiktok_proxy_url",
+        "pinterest": "pinterest_proxy_url",
+    }.get(platform)
+
+    if not attr_name:
+        return ""
+
+    return str(getattr(settings, attr_name, "") or "").strip()
+
+
 def apply_platform_cookies(
     settings: Settings,
     url: str,
@@ -143,12 +166,16 @@ def apply_platform_cookies(
     ydl_opts["_platform_auth_name"] = get_auth_name(platform, slot)
     ydl_opts["_platform_auth_slot"] = slot
 
+    proxy_url = get_platform_proxy_url(
+        settings,
+        platform,
+        proxy_url_override=proxy_url_override,
+    )
+    if proxy_url:
+        ydl_opts["proxy"] = proxy_url
+
     # YouTube and YouTube Music share slots and both need challenge support.
     if platform == "youtube":
-        proxy_url = str(proxy_url_override if proxy_url_override is not None else getattr(settings, "youtube_proxy_url", "") or "").strip()
-        if proxy_url:
-            ydl_opts["proxy"] = proxy_url
-
         deno_path = (
             getattr(settings, "deno_path", None)
             or getattr(settings, "DENO_PATH", None)

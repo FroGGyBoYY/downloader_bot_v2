@@ -121,17 +121,31 @@ def add_proxies(settings: Settings, proxies: list[str], *, admin_id: int | None 
     return added, reactivated
 
 
-def get_next_proxy(settings: Settings, service: str = PROXY_SERVICE) -> dict | None:
+def get_next_proxy(
+    settings: Settings,
+    service: str = PROXY_SERVICE,
+    *,
+    exclude_ids: set[int] | None = None,
+) -> dict | None:
     conn = db_connect(settings)
+    excluded = sorted(int(proxy_id) for proxy_id in (exclude_ids or set()) if proxy_id)
+    exclude_sql = ""
+    params: list[object] = [service, ACTIVE]
+    if excluded:
+        placeholders = ",".join("?" for _ in excluded)
+        exclude_sql = f" AND id NOT IN ({placeholders})"
+        params.extend(excluded)
+
     row = conn.execute(
-        """
+        f"""
         SELECT *
         FROM proxy_pool
         WHERE service=? AND status=?
-        ORDER BY id ASC
+        {exclude_sql}
+        ORDER BY requests_count ASC, fail_count ASC, id ASC
         LIMIT 1
         """,
-        (service, ACTIVE),
+        tuple(params),
     ).fetchone()
     conn.close()
     return dict(row) if row else None

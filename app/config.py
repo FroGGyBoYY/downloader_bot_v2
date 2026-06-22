@@ -190,6 +190,9 @@ class Settings:
 
     deno_path: Optional[Path]
     youtube_proxy_url: str
+    instagram_proxy_url: str
+    tiktok_proxy_url: str
+    pinterest_proxy_url: str
 
     log_level: str
 
@@ -261,6 +264,9 @@ def load_settings() -> Settings:
 
         deno_path=_get_optional_path("DENO_PATH"),
         youtube_proxy_url=_get_str("YOUTUBE_PROXY_URL", ""),
+        instagram_proxy_url=_get_str("INSTAGRAM_PROXY_URL", ""),
+        tiktok_proxy_url=_get_str("TIKTOK_PROXY_URL", ""),
+        pinterest_proxy_url=_get_str("PINTEREST_PROXY_URL", ""),
 
         log_level=_get_str("LOG_LEVEL", "INFO").upper(),
 

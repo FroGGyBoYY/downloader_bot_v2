@@ -699,6 +699,7 @@ def download_media_bundle(
             url=url,
             output_dir=output_dir,
             platform_auth_slot=platform_auth_slot,
+            proxy_url=proxy_url,
         )
 
         result = []
@@ -765,6 +766,7 @@ def download_media_bundle(
             url=url,
             output_dir=output_dir,
             platform_auth_slot=platform_auth_slot,
+            proxy_url=proxy_url,
         )
 
         result = []
@@ -831,6 +833,7 @@ def download_media_bundle(
             url=url,
             output_dir=output_dir,
             platform_auth_slot=platform_auth_slot,
+            proxy_url=proxy_url,
         )
 
         result = []

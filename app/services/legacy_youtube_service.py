@@ -34,6 +34,7 @@ from app.downloader.content_types import DownloadAction, Platform
 from app.services.access_control_service import send_access_denied_if_needed
 from app.services.ads_service import maybe_send_after_download_ad
 from app.services.cookie_auth_service import count_cookie_success, run_with_cookie_rotation
+from app.services.proxy_rotation_service import run_with_proxy_rotation_sync
 from app.telegram_ui.captions import CaptionPayload, build_content_caption, build_custom_emoji_lines
 from app.telegram_ui.sender import send_cached_media, send_local_media
 from app.telegram_ui.user_messages import processing_message, public_download_error_message
@@ -208,11 +209,17 @@ async def start_legacy_youtube_flow(
             context=context,
             url=url,
             platform="youtube",
-            operation=lambda slot: fetch_video_metadata_legacy(
-                settings,
-                url,
-                platform_auth_slot=slot,
-            ),
+            operation=lambda slot: run_with_proxy_rotation_sync(
+                settings=settings,
+                platform="youtube",
+                operation=lambda proxy_url: fetch_video_metadata_legacy(
+                    settings,
+                    url,
+                    platform_auth_slot=slot,
+                    proxy_url=proxy_url,
+                ),
+                operation_name="legacy_youtube_metadata",
+            ).value,
             operation_name="legacy_youtube_metadata",
         )
         info = auth_result.value
@@ -802,25 +809,36 @@ async def process_legacy_youtube_download(
 
         with tempfile.TemporaryDirectory(dir=temp_root) as tmpdir:
             def _download_operation(slot: int):
-                info = fetch_video_metadata_legacy(
-                    settings,
-                    url,
-                    platform_auth_slot=slot,
-                )
-                file_path, downloaded_info, result = download_video_smart_legacy(
-                    settings,
-                    url,
-                    tmpdir,
-                    info,
-                    requested_quality,
-                    requested_audio_lang,
-                    platform_auth_slot=slot,
-                )
+                def _download_with_proxy(proxy_url: str | None):
+                    info = fetch_video_metadata_legacy(
+                        settings,
+                        url,
+                        platform_auth_slot=slot,
+                        proxy_url=proxy_url,
+                    )
+                    file_path, downloaded_info, result = download_video_smart_legacy(
+                        settings,
+                        url,
+                        tmpdir,
+                        info,
+                        requested_quality,
+                        requested_audio_lang,
+                        platform_auth_slot=slot,
+                        proxy_url=proxy_url,
+                    )
 
-                if not file_path or not downloaded_info:
-                    raise RuntimeError(result)
+                    if not file_path or not downloaded_info:
+                        raise RuntimeError(result)
 
-                return info, file_path, downloaded_info, result
+                    return info, file_path, downloaded_info, result
+
+                proxy_result = run_with_proxy_rotation_sync(
+                    settings=settings,
+                    platform="youtube",
+                    operation=_download_with_proxy,
+                    operation_name="legacy_youtube_download",
+                )
+                return proxy_result.value
 
             auth_result = await run_with_cookie_rotation(
                 context=context,

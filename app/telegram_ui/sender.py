@@ -1,6 +1,10 @@
 import logging
+import os
+import shutil
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic_ns
 from typing import Optional, Sequence
 
 from telegram import MessageEntity
@@ -13,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 LARGE_VIDEO_FALLBACK_LIMIT = 50 * 1024 * 1024
+LOCAL_BOT_API_SHARED_ROOT = Path("/var/lib/telegram-bot-api/codex_uploads")
 
 
 @dataclass(frozen=True)
@@ -63,6 +68,39 @@ def _is_large_uncertain_send_error(file_path: Path, error: Exception) -> bool:
         return file_path.stat().st_size >= LARGE_VIDEO_FALLBACK_LIMIT
     except Exception:
         return True
+
+
+@contextmanager
+def _prepared_upload_file(settings: Settings, file_path: Path):
+    if not settings.use_local_bot_api:
+        with open(file_path, "rb") as f:
+            yield f
+        return
+
+    staged_path: Path | None = None
+    try:
+        LOCAL_BOT_API_SHARED_ROOT.mkdir(parents=True, exist_ok=True)
+        staged_path = LOCAL_BOT_API_SHARED_ROOT / f"{os.getpid()}_{monotonic_ns()}_{file_path.name}"
+        try:
+            os.link(file_path, staged_path)
+        except OSError:
+            shutil.copy2(file_path, staged_path)
+
+        yield staged_path
+    except Exception as e:
+        logger.warning(
+            "Local Bot API shared file path unavailable, streaming upload | file=%s error=%s",
+            file_path,
+            e,
+        )
+        with open(file_path, "rb") as f:
+            yield f
+    finally:
+        if staged_path:
+            try:
+                staged_path.unlink(missing_ok=True)
+            except Exception:
+                logger.exception("Could not remove staged Telegram upload file | path=%s", staged_path)
 
 
 async def send_cached_media(
@@ -151,10 +189,10 @@ async def send_local_media(
     reply_to_message_id: int | None = None,
 ) -> SentTelegramFile:
     if media_type == "photo":
-        if settings.use_local_bot_api:
+        with _prepared_upload_file(settings, file_path) as upload_file:
             message = await bot.send_photo(
                 chat_id=chat_id,
-                photo=file_path,
+                photo=upload_file,
                 caption=caption,
                 caption_entities=caption_entities,
                 reply_to_message_id=reply_to_message_id,
@@ -163,27 +201,14 @@ async def send_local_media(
                 connect_timeout=settings.send_connect_timeout,
                 pool_timeout=settings.send_pool_timeout,
             )
-        else:
-            with open(file_path, "rb") as f:
-                message = await bot.send_photo(
-                    chat_id=chat_id,
-                    photo=f,
-                    caption=caption,
-                    caption_entities=caption_entities,
-                    reply_to_message_id=reply_to_message_id,
-                    read_timeout=settings.send_read_timeout,
-                    write_timeout=settings.send_write_timeout,
-                    connect_timeout=settings.send_connect_timeout,
-                    pool_timeout=settings.send_pool_timeout,
-                )
 
         return _extract_sent_file(message, "photo")
 
     if media_type == "audio":
-        if settings.use_local_bot_api:
+        with _prepared_upload_file(settings, file_path) as upload_file:
             message = await bot.send_audio(
                 chat_id=chat_id,
-                audio=file_path,
+                audio=upload_file,
                 caption=caption,
                 caption_entities=caption_entities,
                 title=title,
@@ -195,31 +220,15 @@ async def send_local_media(
                 connect_timeout=settings.send_connect_timeout,
                 pool_timeout=settings.send_pool_timeout,
             )
-        else:
-            with open(file_path, "rb") as f:
-                message = await bot.send_audio(
-                    chat_id=chat_id,
-                    audio=f,
-                    caption=caption,
-                    caption_entities=caption_entities,
-                    title=title,
-                    performer=performer,
-                    duration=duration,
-                    reply_to_message_id=reply_to_message_id,
-                    read_timeout=settings.send_read_timeout,
-                    write_timeout=settings.send_write_timeout,
-                    connect_timeout=settings.send_connect_timeout,
-                    pool_timeout=settings.send_pool_timeout,
-                )
 
         return _extract_sent_file(message, "audio")
 
     if media_type == "video":
         try:
-            if settings.use_local_bot_api:
+            with _prepared_upload_file(settings, file_path) as upload_file:
                 message = await bot.send_video(
                     chat_id=chat_id,
-                    video=file_path,
+                    video=upload_file,
                     caption=caption,
                     caption_entities=caption_entities,
                     supports_streaming=True,
@@ -232,23 +241,6 @@ async def send_local_media(
                     connect_timeout=settings.send_connect_timeout,
                     pool_timeout=settings.send_pool_timeout,
                 )
-            else:
-                with open(file_path, "rb") as f:
-                    message = await bot.send_video(
-                        chat_id=chat_id,
-                        video=f,
-                        caption=caption,
-                        caption_entities=caption_entities,
-                        supports_streaming=True,
-                        width=width,
-                        height=height,
-                        duration=duration,
-                        reply_to_message_id=reply_to_message_id,
-                        read_timeout=settings.send_read_timeout,
-                        write_timeout=settings.send_write_timeout,
-                        connect_timeout=settings.send_connect_timeout,
-                        pool_timeout=settings.send_pool_timeout,
-                    )
 
             return _extract_sent_file(message, "video")
 
@@ -264,10 +256,10 @@ async def send_local_media(
 
             logger.warning("send_video failed, fallback to document | file=%s | error=%s", file_path, e)
 
-            if settings.use_local_bot_api:
+            with _prepared_upload_file(settings, file_path) as upload_file:
                 message = await bot.send_document(
                     chat_id=chat_id,
-                    document=file_path,
+                    document=upload_file,
                     caption=caption,
                     caption_entities=caption_entities,
                     reply_to_message_id=reply_to_message_id,
@@ -276,26 +268,13 @@ async def send_local_media(
                     connect_timeout=settings.send_connect_timeout,
                     pool_timeout=settings.send_pool_timeout,
                 )
-            else:
-                with open(file_path, "rb") as f:
-                    message = await bot.send_document(
-                        chat_id=chat_id,
-                        document=f,
-                        caption=caption,
-                        caption_entities=caption_entities,
-                        reply_to_message_id=reply_to_message_id,
-                        read_timeout=settings.send_read_timeout,
-                        write_timeout=settings.send_write_timeout,
-                        connect_timeout=settings.send_connect_timeout,
-                        pool_timeout=settings.send_pool_timeout,
-                    )
 
             return _extract_sent_file(message, "document")
 
-    if settings.use_local_bot_api:
+    with _prepared_upload_file(settings, file_path) as upload_file:
         message = await bot.send_document(
             chat_id=chat_id,
-            document=file_path,
+            document=upload_file,
             caption=caption,
             caption_entities=caption_entities,
             reply_to_message_id=reply_to_message_id,
@@ -304,18 +283,5 @@ async def send_local_media(
             connect_timeout=settings.send_connect_timeout,
             pool_timeout=settings.send_pool_timeout,
         )
-    else:
-        with open(file_path, "rb") as f:
-            message = await bot.send_document(
-                chat_id=chat_id,
-                document=f,
-                caption=caption,
-                caption_entities=caption_entities,
-                reply_to_message_id=reply_to_message_id,
-                read_timeout=settings.send_read_timeout,
-                write_timeout=settings.send_write_timeout,
-                connect_timeout=settings.send_connect_timeout,
-                pool_timeout=settings.send_pool_timeout,
-            )
 
     return _extract_sent_file(message, "document")

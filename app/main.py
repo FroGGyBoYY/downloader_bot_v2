@@ -1,4 +1,5 @@
 import logging
+import shutil
 from datetime import time, timedelta, timezone
 
 from telegram import BotCommand, Update
@@ -153,6 +154,25 @@ from app.services.legacy_youtube_service import (
 logger = logging.getLogger(__name__)
 
 
+def cleanup_startup_temp(settings) -> None:
+    temp_root = settings.base_dir / "media" / "temp"
+    if not temp_root.exists():
+        return
+
+    removed = 0
+    for path in temp_root.iterdir():
+        if not path.is_dir() or not path.name.startswith("tmp"):
+            continue
+        try:
+            shutil.rmtree(path)
+            removed += 1
+        except Exception:
+            logger.exception("Startup temp cleanup failed | path=%s", path)
+
+    if removed:
+        logger.info("Startup temp cleanup finished | removed_dirs=%s", removed)
+
+
 async def post_init(application) -> None:
     settings = application.bot_data["settings"]
 
@@ -241,6 +261,7 @@ def build_application():
     logger.info("BOT_TOKEN exists=%s", bool(settings.bot_token))
     logger.info("ADMIN_IDS=%s", sorted(settings.admin_ids))
     logger.info("LOG_LEVEL=%s", settings.log_level)
+    cleanup_startup_temp(settings)
     init_db(settings)
     logger.info("Database initialized")
 
@@ -249,6 +270,8 @@ def build_application():
 
     builder = ApplicationBuilder().token(settings.bot_token)
     builder.post_init(post_init)
+    builder.concurrent_updates(max(1, settings.worker_count))
+    logger.info("Concurrent updates enabled | worker_count=%s", settings.worker_count)
 
     if settings.use_local_bot_api:
         logger.info("Local Telegram Bot API mode enabled")

@@ -47,6 +47,8 @@ PLATFORM_ACCESS_ERROR_MARKERS = (
     "http redirect to login page",
     "accounts/login",
     "unsupported url 'https://www.instagram.com/accounts/login",
+    "ip address is blocked",
+    "blocked from accessing this post",
     "download completed but no files were created",
     "download completed but no media items were returned",
     "yt-dlp returned empty metadata",

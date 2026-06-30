@@ -56,7 +56,10 @@ AUTH_ERROR_MARKERS = (
 )
 
 
-INSTAGRAM_EMPTY_RESULT_AUTH_MARKERS = (
+EMPTY_RESULT_AUTH_PLATFORMS = {"instagram", "tiktok"}
+
+
+EMPTY_RESULT_AUTH_MARKERS = (
     "download completed but no files were created",
     "download completed but no media items were returned",
     "yt-dlp returned empty metadata",
@@ -111,11 +114,11 @@ def is_platform_auth_related_error(error: BaseException | str | None, platform: 
     if is_auth_related_error(error):
         return True
 
-    if normalize_cookie_platform(platform) != "instagram":
+    if normalize_cookie_platform(platform) not in EMPTY_RESULT_AUTH_PLATFORMS:
         return False
 
     text = str(error or "").lower()
-    return any(marker in text for marker in INSTAGRAM_EMPTY_RESULT_AUTH_MARKERS)
+    return any(marker in text for marker in EMPTY_RESULT_AUTH_MARKERS)
 
 
 def _short_reason(error: BaseException | str | None, limit: int = 450) -> str:

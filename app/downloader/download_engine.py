@@ -899,6 +899,11 @@ def download_media_bundle(
 
     fmt = _build_format(route, quality, audio_lang, audio_format_id)
 
+    ignore_download_errors = not (
+        platform == "tiktok"
+        and route.action == DownloadAction.DOWNLOAD_VIDEO_MAX
+    )
+
     ydl_opts = {
         "outtmpl": output_template,
         "quiet": True,
@@ -910,7 +915,7 @@ def download_media_bundle(
         "fragment_retries": 3,
         "concurrent_fragment_downloads": 4,
         "http_chunk_size": 10 * 1024 * 1024,
-        "ignoreerrors": True,
+        "ignoreerrors": ignore_download_errors,
         "ignore_no_formats_error": True,
         "merge_output_format": "mp4",
     }
@@ -969,6 +974,11 @@ def download_media_bundle(
         if platform == "youtube" and "music.youtube.com" in str(url).lower():
             raise RuntimeError(
                 "YouTube temporarily limited access: download completed but no files were created"
+            )
+
+        if platform == "tiktok":
+            raise RuntimeError(
+                "TikTok may require login or a different proxy: download completed but no files were created"
             )
 
         raise RuntimeError("download completed but no files were created")
